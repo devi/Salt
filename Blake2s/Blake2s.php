@@ -35,11 +35,11 @@ class Blake2s {
 	);
 
 	protected function load32($x, $offset = 0) {
-		$w = $x[$offset] |
-			 ($x[1+$offset] << 8) |
-			 ($x[2+$offset] << 16) |
-			 ($x[3+$offset] << 24);
-		return ($w >> 22) ? $w : 0;
+		return
+			$x[$offset] |
+			($x[1+$offset] << 8) |
+			($x[2+$offset] << 16) |
+			($x[3+$offset] << 24);
 	}
 
 	protected function store32($x, $offset = 0, $u) {
@@ -63,7 +63,7 @@ class Blake2s {
 		$ctx[5] = 0; // last_node
 
 		for ($i = 0;$i < 8;++$i) {
-			$ctx[0][$i] = static::$IV[$i] ^ $this->load32($p, $i);
+			$ctx[0][$i] = static::$IV[$i] ^ $this->load32($p, $i*4);
 		}
 
 		return $ctx;
@@ -120,10 +120,8 @@ class Blake2s {
 		$m = new SplFixedArray(16);
 		$v = new SplFixedArray(16);
 
-		$j = 0;
 		for ($i = 0;$i < 16;++$i) {
-			$m[$i] = $this->load32($block, $j);
-			$j += 4;
+			$m[$i] = $this->load32($block, $i*4);
 		}
 
 		for ($i = 0;$i < 8;++$i) {
@@ -233,10 +231,8 @@ class Blake2s {
 		$this->compress($ctx, $ctx[3]);
 
 		$buffer = new SplFixedArray(Blake2s::OUTBYTES);
-		$j = 0;
 		for ($i = 0;$i < 8;++$i) {
-			$this->store32($buffer, $j, $ctx[0][$i]);
-			$j += 4;
+			$this->store32($buffer, $i*4, $ctx[0][$i]);
 		}
 
 		// TODO: reset without nullify context
