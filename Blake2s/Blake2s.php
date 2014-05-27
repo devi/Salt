@@ -8,15 +8,13 @@
  * Assembled from:
  *  - https://blake2.net
  *
- * @author Devi Mandiri <devi.mandiri@gmail>
+ * @author Devi Mandiri <devi.mandiri@gmail.com>
  */
 class Blake2s {
 
 	const BLOCKBYTES =   64; // digest length
 	const OUTBYTES   =   32; // maximum output length
 	const KEYBYTES   =   32; // maximum length of key
-	const SALTBYTES  =    8; // maximum salt length
-	const PERSONALBYTES = 8; // maximum personalization length
 
 	protected static $IV = array(
 		0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
@@ -79,7 +77,11 @@ class Blake2s {
 	 * @return array   Blake2s context
 	 */
 	public function init($key = null) {
-		$keylen = $key ? strlen($key) : 0;
+		$keylen = strlen($key);
+		if ($keylen > Blake2s::KEYBYTES) {
+			$keylen = Blake2s::KEYBYTES;
+		}
+
 		$p = new SplFixedArray(32);
 		$p[0] = Blake2s::OUTBYTES; // digest_length 
 		$p[1] = $keylen;           // key_length
@@ -89,7 +91,10 @@ class Blake2s {
 		$ctx = $this->context($p);
 
 		if ($key) {
-			$block = SplFixedArray::fromArray(unpack("C*", $key), false);
+			$block = SplFixedArray::fromArray(
+				unpack("C*", substr($key, 0, Blake2s::KEYBYTES)),
+				false
+			);
 			$block->setSize(Blake2s::BLOCKBYTES);
 			$this->update($ctx, $block, Blake2s::BLOCKBYTES);
 		}
