@@ -92,7 +92,7 @@ class Blake2s {
 
 		if ($key) {
 			$block = SplFixedArray::fromArray(
-				unpack("C*", substr($key, 0, Blake2s::KEYBYTES)),
+				unpack("C*", substr($key, 0, $keylen)),
 				false
 			);
 			$block->setSize(Blake2s::BLOCKBYTES);
