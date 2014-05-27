@@ -390,4 +390,18 @@ class Salt {
 		return false;
 	}
 
+	/**
+	 * Generate hash value using Blake2s.
+	 *
+	 * @param  string
+	 * @param  bool    When set to TRUE, outputs raw byte array
+	 * @return mixed
+	 */
+	public function hash($str, $raw = false) {
+		$s = SplFixedArray::fromArray(unpack("C*", $str), false);
+		$b2s = new Blake2s();
+		$ctx = $b2s->init();
+		$b2s->update($ctx, $s, count($s));
+		return $b2s->finish($ctx, $raw);
+	}
 }

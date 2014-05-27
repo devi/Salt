@@ -5,6 +5,7 @@ spl_autoload_register(
 		static $classes = null;
 		if ($classes === null) {
 			$classes = array(
+				'blake2s' => '/Blake2s/Blake2s.php',
 				'curve25519' => '/Curve25519/Curve25519.php',
 				'ed25519' => '/Ed25519/Ed25519.php',
 				'fieldelement' => '/FieldElement.php',
