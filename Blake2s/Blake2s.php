@@ -60,7 +60,6 @@ class Blake2s {
 		$ctx[2] = new SplFixedArray(2); // f
 		$ctx[3] = new SplFixedArray(2*Blake2s::BLOCKBYTES); // buf
 		$ctx[4] = 0; // buflen
-		$ctx[5] = 0; // last_node
 
 		for ($i = 0;$i < 8;++$i) {
 			$ctx[0][$i] = static::$IV[$i] ^ $this->load32($p, $i*4);
@@ -219,9 +218,7 @@ class Blake2s {
 		}
 
 		$this->incrementCounter($ctx, $ctx[4]);
-
-		if ($ctx[5]) $ctx[2][1] = ~0;
-		$ctx[2][0] = ~0;
+		$ctx[2][0] = 0xffffffff;
 
 		$j = (2*Blake2s::BLOCKBYTES) - $ctx[4];
 		for ($i = 0;$i < $j;++$i) {
@@ -235,12 +232,7 @@ class Blake2s {
 			$this->store32($buffer, $i*4, $ctx[0][$i]);
 		}
 
-		// TODO: reset without nullify context
-		$ctx = null;
-
-		if ($raw) {
-			return array_slice($buffer->toArray(), 0, $outlen);
-		}
+		if ($raw) $buffer;
 
 		$out = "";
 		$hextable = "0123456789abcdef";
