@@ -232,7 +232,7 @@ class Blake2s {
 			$this->store32($buffer, $i*4, $ctx[0][$i]);
 		}
 
-		if ($raw) $buffer;
+		if ($raw) return $buffer;
 
 		$out = "";
 		$hextable = "0123456789abcdef";
