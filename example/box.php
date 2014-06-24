@@ -28,5 +28,5 @@ $chipertext = $salt->crypto_box($msg, $msg->getSize(), $nonce, $bob_publickey, $
 // bob decrypt the encrypted message from alice using his private key and alice public key
 $plaintext = $salt->crypto_box_open($chipertext, $chipertext->getSize(), $nonce, $alice_publickey, $bob_privatekey);
 
-// bob read plain the message
+// bob read the the message
 echo $plaintext->toString()."\n";
