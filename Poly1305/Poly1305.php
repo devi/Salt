@@ -6,7 +6,6 @@
  *   https://github.com/floodyberry/poly1305-donna
  *
  * 
- * @author Devi Mandiri <devi.mandiri@gmail.com>
  * @link   https://github.com/devi/Salt
  * 
  */

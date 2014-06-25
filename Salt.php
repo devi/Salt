@@ -5,7 +5,6 @@
  * A collections of [NaCl](http://nacl.cr.yp.to/) cryptography library for PHP.
  *
  * 
- * @author Devi Mandiri <devi.mandiri@gmail.com>
  * @link   https://github.com/devi/Salt
  *
  */
@@ -208,14 +207,17 @@ class Salt {
 	}
 
 	public function crypto_scalarmult($in, $scalar) {
-		$out = new FieldElement(32);
-		Curve25519::instance()->scalarmult($out, $in, $scalar);
+		$out = FieldElement::fromArray(
+				Curve25519::instance()->scalarmult($in, $scalar)
+			);
 		return $out;
 	}
 
 	public function crypto_scalarmult_base($in) {
-		$bp = new SplFixedArray(32); $bp[0] = 9;
-		return $this->crypto_scalarmult($in, $bp);
+		$out = FieldElement::fromArray(
+				Curve25519::instance()->scalarbase($in)
+			);
+		return $out;
 	}
 
 	public function crypto_box_keypair() {

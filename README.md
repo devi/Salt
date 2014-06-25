@@ -17,6 +17,6 @@ Original sources
 ----------------
 
  * [libsodium](https://github.com/jedisct1/libsodium/)
- * [Go implementation for Curve25519](http://godoc.org/code.google.com/go.crypto/curve25519/)
+ * [curve25519-donna](https://github.com/floodyberry/curve25519-donna/)
  * [poly1305-donna](https://github.com/floodyberry/poly1305-donna/)
  * [Tweetnacl](http://tweetnacl.cr.yp.to/)

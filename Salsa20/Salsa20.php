@@ -6,7 +6,6 @@
  *  - http://tweetnacl.cr.yp.to/
  *
  * 
- * @author Devi Mandiri <devi.mandiri@gmail.com>
  * @link   https://github.com/devi/Salt
  * 
  */
