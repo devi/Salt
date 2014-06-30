@@ -37,9 +37,9 @@ if ($plaintext === false) {
 	exit(0);
 }
 
-if (sodium_memcmp($sodium_open_msg, $plaintext) === 0) {
+if (sodium_memcmp($sodium_open_msg, $plaintext->toString()) === 0) {
 	echo $sodium_open_msg."\n";
-	echo $plaintext."\n";
+	echo $plaintext->toString()."\n";
 }
 
 echo "\nmemory peak: ".memory_get_peak_usage(true)."\n";

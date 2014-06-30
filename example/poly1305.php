@@ -76,7 +76,7 @@ $mac = new SplFixedArray(16);
 $result = 1;
 $salt = Salt::instance();
 $mac = $salt->crypto_onetimeauth($nacl_msg, count($nacl_msg), $nacl_key);
-$result &= $salt->compare($nacl_mac, $mac);
+$result &= Salt::equal($nacl_mac, $mac);
 
 for ($i = 0; $i < 16; ++$i) $mac[$i] = 0;
 
@@ -94,12 +94,12 @@ $poly1305->update($ctx, array_slice($nacl_msg,  129),  1);
 $poly1305->update($ctx, array_slice($nacl_msg,  130),  1);
 $poly1305->finish($ctx, $mac);
 
-$result &= $salt->compare($nacl_mac, $mac);
+$result &= Salt::equal($nacl_mac, $mac);
 
 for ($i = 0; $i < 16; ++$i) $mac[$i] = 0;
 
 $mac = $salt->crypto_onetimeauth($wrap_msg, count($wrap_msg), $wrap_key);
-$result &= $salt->compare($wrap_mac, $mac);
+$result &= Salt::equal($wrap_mac, $mac);
 
 $total_ctx = $poly1305->init($total_key);
 for ($i = 0;$i < 256;++$i) {
@@ -111,7 +111,7 @@ for ($i = 0;$i < 256;++$i) {
 	$poly1305->update($total_ctx, $mac, 16);
 }
 $poly1305->finish($total_ctx, $mac);
-$result &= $salt->compare($total_mac, $mac);
+$result &= Salt::equal($total_mac, $mac);
 
 for ($i = 0, $l = count($mac);$i < $l;++$i) {
 	printf("0x%02x", $mac[$i]);

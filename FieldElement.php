@@ -37,21 +37,12 @@ class FieldElement extends SplFixedArray {
 		return $buf;
 	}
 
-	public static function fromArray($array, $save_indexes = true) {
-		$l = count($array);
-		$fe = new FieldElement($l);
-		$array = $save_indexes ? $array : array_values($array);
-		foreach ($array as $k => $v) $fe[$k] = $v;
-		return $fe;
+	public function toBase64() {
+		return base64_encode($this->toString());
 	}
 
-	public static function fromString($str) {
-		return static::fromArray(unpack("C*", $str), false);
-	}
-
-	public static function fromHex($hex) {
-		$hex = preg_replace('/[^0-9a-f]/', '', $hex);
-		return static::fromString(pack("H*", $hex));
+	public function toJson() {
+		return json_encode($this->toString());
 	}
 
 	public function slice($offset, $length = null) {
@@ -69,4 +60,28 @@ class FieldElement extends SplFixedArray {
 		}
 	}
 
+	public static function fromArray($array, $save_indexes = true) {
+		$l = count($array);
+		$fe = new FieldElement($l);
+		$array = $save_indexes ? $array : array_values($array);
+		foreach ($array as $k => $v) $fe[$k] = $v;
+		return $fe;
+	}
+
+	public static function fromString($str) {
+		return static::fromArray(unpack("C*", $str), false);
+	}
+
+	public static function fromHex($hex) {
+		$hex = preg_replace('/[^0-9a-f]/', '', $hex);
+		return static::fromString(pack("H*", $hex));
+	}
+
+	public static function fromBase64($base64) {
+		return FieldElement::fromString(base64_decode($base64, true));
+	}
+
+	public static function fromJson($json) {
+		return FieldElement::fromArray(json_decode($json, true));
+	}
 }

@@ -8,7 +8,7 @@
  * Assembled from:
  *  - https://blake2.net
  *
- * @author Devi Mandiri <devi.mandiri@gmail.com>
+ * @link   https://github.com/devi/Salt
  */
 class Blake2s {
 
@@ -71,17 +71,19 @@ class Blake2s {
 	/**
 	 * Initialize Blake2s context.
 	 *
-	 * @param  string
+	 * @param  array
 	 * @param  int
 	 * @return array   Blake2s context
 	 */
 	public function init($key = null) {
-		$keylen = strlen($key);
+		$keylen = count($key);
+
 		if ($keylen > Blake2s::KEYBYTES) {
-			$keylen = Blake2s::KEYBYTES;
+			$keylen = Blake2s::KEYBYTES; // truncate
 		}
 
 		$p = new SplFixedArray(32);
+
 		$p[0] = Blake2s::OUTBYTES; // digest_length 
 		$p[1] = $keylen;           // key_length
 		$p[2] = 1;                 // fanout
@@ -90,11 +92,12 @@ class Blake2s {
 		$ctx = $this->context($p);
 
 		if ($key) {
-			$block = SplFixedArray::fromArray(
-				unpack("C*", substr($key, 0, $keylen)),
-				false
-			);
-			$block->setSize(Blake2s::BLOCKBYTES);
+			$block = new SplFixedArray(Blake2s::BLOCKBYTES);
+
+			for ($i = 0; $i < $keylen; $i++) {
+				$block[$i] = $key[$i];
+			};
+
 			$this->update($ctx, $block, Blake2s::BLOCKBYTES);
 		}
 
@@ -204,10 +207,9 @@ class Blake2s {
 	 * 
 	 * @param  array  Blake2s context
 	 * @param  int    output length
-	 * @param  bool   When set to TRUE, outputs raw byte array
-	 * @return mixed
+	 * @return SplFixedArray
 	 */
-	public function finish($ctx, $raw = false) {
+	public function finish($ctx, $out) {
 		if ($ctx[4] > Blake2s::BLOCKBYTES) {
 			$this->incrementCounter($ctx, Blake2s::BLOCKBYTES);
 			$this->compress($ctx, $ctx[3]);
@@ -227,21 +229,9 @@ class Blake2s {
 
 		$this->compress($ctx, $ctx[3]);
 
-		$buffer = new SplFixedArray(Blake2s::OUTBYTES);
 		for ($i = 0;$i < 8;++$i) {
-			$this->store32($buffer, $i*4, $ctx[0][$i]);
+			$this->store32($out, $i*4, $ctx[0][$i]);
 		}
-
-		if ($raw) return $buffer;
-
-		$out = "";
-		$hextable = "0123456789abcdef";
-		for ($i = 0;$i < Blake2s::OUTBYTES;++$i) {
-			$c = $buffer[$i];
-			$out .= $hextable[$c>>4];
-			$out .= $hextable[$c&0x0f];
-		}
-		return $out;
 	}
 
 }

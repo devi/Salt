@@ -2,31 +2,35 @@
 
 include "../autoload.php";
 
-$salt = Salt::instance();
-
 // alice generate key pair
-$alice = $salt->crypto_box_keypair();
+$alice = Salt::box_keypair();
 
 $alice_privatekey = $alice[0];
 $alice_publickey = $alice[1];
 
 // bob generate key pair
-$bob = $salt->crypto_box_keypair();
+$bob = Salt::box_keypair();
 
 $bob_privatekey = $bob[0];
 $bob_publickey = $bob[1];
 
-// alice generate 24 bytes nonce
-$nonce = FieldElement::fromString($salt->randombytes(24));
+$msg = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.';
 
-// alice write the message
-$msg = FieldElement::fromString("Lorem ipsum dolor sit amet, consectetur adipiscing elit.");
+// alice generate 24 byte nonce
+$nonce = Salt::randombytes(24);
 
-// alice encrypt the message using her private key and bob publickey
-$chipertext = $salt->crypto_box($msg, $msg->getSize(), $nonce, $bob_publickey, $alice_privatekey);
+// alice encrypt the message using her private key, bob publickey and a nonce
+$chipertext = Salt::box($msg, $alice_privatekey, $bob_publickey, $nonce);
 
-// bob decrypt the encrypted message from alice using his private key and alice public key
-$plaintext = $salt->crypto_box_open($chipertext, $chipertext->getSize(), $nonce, $alice_publickey, $bob_privatekey);
+// bob decrypt the chipertext from alice using his private key, alice public key and
+// a nonce received from alice
+$the_message = Salt::box_open($chipertext, $bob_privatekey, $alice_publickey, $nonce);
 
-// bob read the message
-echo $plaintext->toString()."\n";
+if (!$the_message) {
+	echo 'This is a bug';
+} else {
+	// bob read the message
+	echo $the_message->toString();
+}
+
+echo "\n";

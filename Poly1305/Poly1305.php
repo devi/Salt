@@ -208,9 +208,7 @@ class Poly1305 {
 		$g3 = $h3 + $c; $c = $g3 >> 26; $g3 &= 0x3ffffff;
 		$g4 = $h4 + $c - (1 << 26);
 
-		// mask = (g4 >> ((sizeof(unsigned long) * 8) - 1)) - 1;
-		// is this correct ?
-		$mask = (1 & ($g4 >> 0x3f)) - 1;
+		$mask = (1 & ($g4 >> 63)) - 1;
 		$g0 &= $mask;
 		$g1 &= $mask;
 		$g2 &= $mask;

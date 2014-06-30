@@ -70,10 +70,10 @@ class Salt {
 	 * Helper function to generate random string.
 	 *
 	 * @param  int
-	 * @return mixed
+	 * @return string
 	 */
-	public function randombytes($length = 32) {
-		$raw = "";
+	public static function randombytes($length = 32) {
+		$raw = '';
 		if (is_readable('/dev/urandom')) {
 			$fp = true;
 			if ($fp === true) {
@@ -87,42 +87,30 @@ class Salt {
 		} else if (function_exists('openssl_random_pseudo_bytes')) {
 			$raw = openssl_random_pseudo_bytes($length);
 		}
-		return $raw ? $raw : false;
-	}
-
-	/**
-	 * Returns 1 if $x === $y
-	 *
-	 * @param array
-	 * @param array
-	 * @return int
-	 */
-	public function compare($x, $y) {
-		$l = count($x);
-		if ($l !== count($y)) return false;
-		$v = 0;
-		for ($i = 0; $i < $l; ++$i) {
-			$v |= $x[$i] ^ $y[$i];
+		if (!$raw || strlen($raw) !== $length) {
+			throw new SaltException('Unable to generate randombytes');
 		}
-		return $this->compareByte($v, 0);
+		return $raw;
 	}
 
 	/**
-	 * Returns 1 if $x === $y and 0 otherwise.
-	 * 
-	 * source:
-	 *   http://golang.org/pkg/crypto/subtle#ConstantTimeByteEq
+	 * Returns true if $x === $y
 	 *
-	 * @param int
-	 * @param int
-	 * @return int
+	 * @param array
+	 * @param array
+	 * @return bool
 	 */
-	public function compareByte($x, $y) {
-		$z = ($x ^ $y) ^ 0xff;
-		$z &= $z >> 4;
-		$z &= $z >> 2;
-		$z &= $z >> 1;
-		return $z;
+	public static function equal($x, $y) {
+		$len = count($x);
+		if ($len !== count($y)) return false;
+
+		$diff = 0;
+		for ($i = 0; $i < $len; $i++) {
+			$diff |= $x[$i] ^ $y[$i];
+		}
+		$diff = ($diff - 1) >> 31;
+
+		return (($diff & 1) === 1);
 	}
 
 	public function crypto_core_salsa20($in, $key, $const) {
@@ -148,7 +136,7 @@ class Salt {
 
 	public function crypto_onetimeauth_verify($mac, $in, $length, $key) {
 		$correct = $this->crypto_onetimeauth($in, $length, $key);
-		return ($this->compare($correct, $mac->slice(0,16)) === 1);
+		return Salt::equal($correct, $mac->slice(0, 16));
 	}
 
 	public function crypto_stream_salsa20($length, $nonce, $key) {
@@ -207,25 +195,21 @@ class Salt {
 	}
 
 	public function crypto_scalarmult($in, $scalar) {
-		$out = FieldElement::fromArray(
-				Curve25519::instance()->scalarmult($in, $scalar)
-			);
-		return $out;
+		return FieldElement::fromArray(
+			Curve25519::instance()->scalarmult($in, $scalar)->toArray()
+		);
 	}
 
 	public function crypto_scalarmult_base($in) {
-		$out = FieldElement::fromArray(
-				Curve25519::instance()->scalarbase($in)
-			);
-		return $out;
+		return FieldElement::fromArray(
+			Curve25519::instance()->scalarbase($in)->toArray()
+		);
 	}
 
 	public function crypto_box_keypair() {
-		$sk = FieldElement::fromString($this->randombytes(32));
+		$sk = FieldElement::fromString(Salt::randombytes());
 		$pk = $this->crypto_scalarmult_base($sk);
-		$ret = new SplFixedArray(2);
-		$ret[0] = $sk; $ret[1] = $pk;
-		return $ret;
+		return array($sk, $pk);
 	}
 
 	public function crypto_box_beforenm($publickey, $privatekey) {
@@ -239,9 +223,9 @@ class Salt {
 
 	public function crypto_box($input, $length, $nonce, $publickey, $privatekey) {
 		$subkey = $this->crypto_box_beforenm($publickey, $privatekey);
-		// pad 32 byte
 		$inlen = count($input);
 		$in = new FieldElement($inlen+32);
+		for ($i = 32; $i--;) $in[$i] = 0; // pad 32 byte
 		for ($i = 0;$i < $inlen;++$i) $in[$i+32] = $input[$i];
 		return $this->crypto_box_afternm($in, $length+32, $nonce, $subkey);
 	}
@@ -256,23 +240,23 @@ class Salt {
 	}
 
 	/**
-	 * Generate private and public key.
+	 * Generates a secret key and a corresponding public key.
 	 *
-	 * @param  string  32 byte random string
-	 * @param  string
+	 * @param  mixed   32 byte random string
+	 * @param  string  hash algorithm
 	 * @return array   private key, public key
 	 */
-	public function crypto_sign_keypair($seed=null, $hashAlgo="sha512") {
-		if ($seed && strlen($seed) < 32) {
-			throw new Exception("crypto_sign_keypair: seed must be 32 byte");
+	public function crypto_sign_keypair($seed = null, $algo = 'sha512') {
+		if ($seed === null) {
+			$sk = FieldElement::fromString(Salt::randombytes());
+		} else {
+			$sk = Salt::decodeInput($seed);
+			if ($sk !== Salt::sign_PRIVATEKEY) {
+				throw new SaltException('crypto_sign_keypair: seed must be 32 byte');
+			}
 		}
 
-		$seed = $seed ? substr($seed, 0 ,32) : $this->randombytes();
-
-		$sk = FieldElement::fromString($seed);
-		$sk->setSize(64);
-
-		$azDigest = hash($hashAlgo, $seed, true);
+		$azDigest = hash($algo, $sk->toString(), true);
 		$az = FieldElement::fromString($azDigest);
 		$az[0] &= 248;
 		$az[31] &= 63;
@@ -284,47 +268,44 @@ class Salt {
 		$ed->geScalarmultBase($A, $az);
 		$ed->GeExtendedtoBytes($pk, $A);
 
+		$sk->setSize(64);
 		$sk->copy($pk, 32, 32);
 
-		$ret = new SplFixedArray(2);
-		$ret[0] = $sk; $ret[1] = $pk;
-		return $ret;
+		return array($sk, $pk);
 	}
 
 	/**
 	 * Signs a message using the signer's private key and returns
 	 * the signed message.
 	 *
-	 * @param  string        the message
-	 * @param  int           message length
-	 * @param  FieldElement  private key
-	 * @param  string        hash algo, default to sha512
+	 * @param  mixed   message to be signed
+	 * @param  int     message length to be signed
+	 * @param  mixed   private key
+	 * @param  string  hash algorithm
 	 * @return FieldElement  signed message
 	 */
-	public function crypto_sign(
-			$m, $mlen = null, FieldElement $sk, $hashAlgo = "sha512"
-	){
-		if (count($sk) < 64) {
-			throw new Exception("crypto_sign: private key must be 64 byte");
+	public function crypto_sign($msg, $mlen, $secretkey, $algo = 'sha512') {
+		$sk = Salt::decodeInput($secretkey);
+
+		if ($sk->count() !== Salt::sign_PRIVATEKEY) {
+			throw new SaltException('crypto_sign: private key must be 64 byte');
 		}
 
 		$pk = $sk->slice(32, 32);
 
-		$azDigest = hash($hashAlgo, $sk->slice(0,32)->toString(), true);
+		$azDigest = hash($algo, $sk->slice(0,32)->toString(), true);
 		$az = FieldElement::fromString($azDigest);
 		$az[0] &= 248;
 		$az[31] &= 63;
 		$az[31] |= 64;
 
-		$mlen = $mlen ? $mlen : strlen($m);
-		$smlen = $mlen + 64;
+		$m = Salt::decodeInput($msg);
 
-		$sm = new FieldElement($smlen);
-		$sm1 = FieldElement::fromString(substr($m, 0, $mlen));
-		$sm->copy($sm1, $mlen, 64);
+		$sm = new FieldElement($mlen + 64);
+		$sm->copy($m, $mlen, 64);
 		$sm->copy($az, 32, 32, 32);
 
-		$nonceDigest = hash($hashAlgo, $sm->slice(32, $mlen+32)->toString(), true);
+		$nonceDigest = hash($algo, $sm->slice(32, $mlen+32)->toString(), true);
 		$nonce = FieldElement::fromString($nonceDigest);
 
 		$sm->copy($pk, 32, 32);
@@ -335,7 +316,7 @@ class Salt {
 		$ed->geScalarmultBase($R, $nonce);
 		$ed->GeExtendedtoBytes($sm, $R);
 
-		$hramDigest = hash($hashAlgo, $sm->toString(), true);
+		$hramDigest = hash($algo, $sm->toString(), true);
 		$hram = FieldElement::fromString($hramDigest);
 		$ed->scReduce($hram);
 
@@ -347,30 +328,34 @@ class Salt {
 	}
 
 	/**
-	 * Validate and open signed message using signer's publickey.
+	 * Verifies the signature of a signed message using signer's publickey.
 	 *
-	 * @param  string        signed message
-	 * @param  int           signed message length
-	 * @param  FieldElement  signer's public key
-	 * @param  string        hash algo
+	 * @param  mixed  signed message
+	 * @param  int    signed message length
+	 * @param  mixed  signer's public key
+	 * @param  string hash algorithm
 	 * @return mixed
 	 */
-	public function crypto_sign_open(
-			FieldElement $sm, $smlen,
-			FieldElement $pk, $hashAlgo = "sha512"
-	){
-		$ed = Ed25519::instance();
-		$A = new GeExtended();
+	public function crypto_sign_open($signedmsg, $smlen, $publickey, $algo = 'sha512') {
+		$sm = Salt::decodeInput($signedmsg);
+		$pk = Salt::decodeInput($publickey);
 
 		if ($smlen < 64) return false;
+
 		if ($sm[63] & 224) return false;
-		if (!$ed->geFromBytesNegateVartime($A, $pk)) return false;
+
+		$ed = Ed25519::instance();
+		$A  = new GeExtended();
+
+		if (!$ed->geFromBytesNegateVartime($A, $pk)) {
+			return false;
+		}
 
 		$d = 0;
 		for ($i = 0;$i < 32;++$i) $d |= $pk[$i];
 		if ($d === 0) return false;
 
-		$hs = hash_init($hashAlgo);
+		$hs = hash_init($algo);
 		hash_update($hs, $sm->slice(0, 32)->toString());
 		hash_update($hs, $pk->toString());
 		hash_update($hs, $sm->slice(64, $smlen-64)->toString());
@@ -385,25 +370,290 @@ class Salt {
 		$ed->geToBytes($rcheck, $R);
 
 		if ($ed->cryptoVerify32($rcheck, $sm) === 0) {
-			$m = $sm->slice(64, $smlen-64);
-			return $m->toString();
+			return $sm->slice(64, $smlen-64);
 		}
 
 		return false;
 	}
 
 	/**
+	 * Get bytes presentation from a value.
+	 *
+	 * @param  mixed
+	 * @return FieldElement
+	 */
+	public static function decodeInput($value) {
+		if (is_string($value)) {
+			return FieldElement::fromString($value);
+		} else if ($value instanceof FieldElement) {
+			return $value;
+		} else if ($value instanceof SplFixedArray) {
+			return FieldElement::fromArray($value->toArray(), false);
+		} else if ((array) $value === $value) {
+			return FieldElement::fromArray($value, false);
+		}
+		throw new SaltException('Unexpected input');
+	}
+
+	/* High level API */
+
+	/**
 	 * Generate hash value using Blake2s.
 	 *
-	 * @param  string
-	 * @param  bool    When set to TRUE, outputs raw byte array
-	 * @return mixed
+	 * @param  mixed  data to be hashed
+	 * @param  mixed  optional secret key (max 32 bytes)
+	 * @return FieldElement
 	 */
-	public function hash($str, $raw = false) {
-		$s = SplFixedArray::fromArray(unpack("C*", $str), false);
+	public static function hash($str, $key = null) {
 		$b2s = new Blake2s();
-		$ctx = $b2s->init();
-		$b2s->update($ctx, $s, count($s));
-		return $b2s->finish($ctx, $raw);
+
+		$k = $key;
+		if ($key !== null) {
+			$k = Salt::decodeInput($key);
+			if ($k->count() > $b2s::KEYBYTES) {
+				throw new SaltException('Invalid key size');
+			}
+		}
+
+		$in = Salt::decodeInput($str);
+
+		$ctx = $b2s->init($k);
+		$b2s->update($ctx, $in, $in->count());
+
+		$out = new FieldElement(Blake2s::OUTBYTES);
+		$b2s->finish($ctx, $out);
+
+		return $out;
 	}
+
+	/**
+	 * Authenticates a message using a secret key.
+	 * 
+	 * @param  mixed  message to be authenticated
+	 * @param  mixed  32 bytes secret key
+	 * @return FieldElement  16 bytes authenticator
+	 */
+	public static function onetimeauth($msg, $key) {
+		$k = Salt::decodeInput($key);
+		if ($k->count() !== Salt::onetimeauth_KEY) {
+			throw new SaltException('Invalid key size');
+		}
+		$in = Salt::decodeInput($msg);
+		return Salt::instance()->crypto_onetimeauth($in, $in->count(), $k);
+	}
+
+	/**
+	 * Check if $mac is a correct authenticator of a message under a secret key.
+	 *
+	 * @return bool
+	 */
+	public static function onetimeauth_verify($mac, $msg, $secretkey) {
+		$t = Salt::decodeInput($mac);
+		$m = Salt::decodeInput($msg);
+		$k = Salt::decodeInput($secretkey);
+		if ($t->count() !== Salt::onetimeauth_OUTPUT) {
+			throw new SaltException('Invalid mac size');
+		}
+		if ($k->count() !== Salt::onetimeauth_KEY) {
+			throw new SaltException('Invalid secret key size');
+		}
+		return Salt::instance()->crypto_onetimeauth_verify($t, $m, $m->count(), $k);
+	}
+
+	/**
+	 * Encrypts and authenticates a message using a secret key and a nonce.
+	 *
+	 * @param  mixed  message to be encrypted and authenticated
+	 * @param  mixed  24 bytes nonce
+	 * @param  mixed  32 bytes secret key
+	 * @return FieldElement
+	 */
+	public static function secretbox($msg, $nonce, $key) {
+		$k = Salt::decodeInput($key);
+		$n = Salt::decodeInput($nonce);
+
+		if ($k->count() !== Salt::secretbox_KEY) {
+			throw new SaltException('Invalid key size');
+		}
+		if ($n->count() !== Salt::secretbox_NONCE) {
+			throw new SaltException('Invalid nonce size');
+		}
+
+		$in = new FieldElement(32);
+		for ($i = 32; $i--;) $in[$i] = 0; // zero padding 32 byte
+
+		$data = Salt::decodeInput($msg);
+
+		$in->setSize(32 + $data->count());
+
+		$in->copy($data, $data->count(), 32);
+
+		return Salt::instance()->crypto_secretbox($in, $in->count(), $n, $k);
+	}
+
+	/**
+	 * Verifies and decrypts a chipertext using a secret key and a nonce.
+	 *
+	 * @param  mixed  chipertext to be verified and decrypted
+	 * @param  mixed  24 bytes nonce
+	 * @param  mixed  32 bytes secret key
+	 * @return FieldElement
+	 */
+	public static function secretbox_open($chipertext, $nonce, $key) {
+		$k = Salt::decodeInput($key);
+		$n = Salt::decodeInput($nonce);
+
+		if ($k->count() !== Salt::secretbox_KEY) {
+			throw new SaltException('Invalid key size');
+		}
+		if ($n->count() !== Salt::secretbox_NONCE) {
+			throw new SaltException('Invalid nonce size');
+		}
+
+		$in = Salt::decodeInput($chipertext);
+
+		return Salt::instance()->crypto_secretbox_open($in, $in->count(), $n, $k);
+	}
+
+	/**
+	 * Curve25519 scalar multiplication.
+	 * 
+	 * @param  mixed  32 byte secret key
+	 * @param  mixed  32 byte public key
+	 * @return FieldElement
+	 */
+	public static function scalarmult($secretkey, $publickey) {
+		$sk = Salt::decodeInput($secretkey);
+		$pk = Salt::decodeInput($publickey);
+		if ($sk->count() !== Salt::scalarmult_INPUT) {
+			throw new SaltException('Invalid secret key size');
+		}
+		if ($pk->count() !== Salt::scalarmult_SCALAR) {
+			throw new SaltException('Invalid public key size');
+		}
+		return Salt::instance()->crypto_scalarmult($sk, $pk);
+	}
+
+	/**
+	 * Curve25519 scalar base multiplication.
+	 * 
+	 * @param  mixed  32 byte secret key
+	 * @return FieldElement
+	 */
+	public static function scalarmult_base($secretkey) {
+		$sk = Salt::decodeInput($secretkey);
+		if ($sk->count() !== Salt::scalarmult_INPUT) {
+			throw new SaltException('Invalid secret key size');
+		}
+		return Salt::instance()->crypto_scalarmult_base($sk);
+	}
+
+	/**
+	 * Encrypts and authenticates a message using sender's secret key,
+	 * receiver's public key and a nonce.
+	 *
+	 * @param  mixed  the message
+	 * @param  mixed  32 byte sender's secret key
+	 * @param  mixed  32 byte receiver's public key
+	 * @param  mixed  24 byte nonce
+	 * @return FieldElement chipertext
+	 */
+	public static function box($msg, $secretkey, $publickey, $nonce) {
+		$in = Salt::decodeInput($msg);
+		$sk = Salt::decodeInput($secretkey);
+		$pk = Salt::decodeInput($publickey);
+		$n = Salt::decodeInput($nonce);
+		if ($sk->count() !== Salt::box_PRIVATEKEY) {
+			throw new SaltException('Invalid secret key size');
+		}
+		if ($pk->count() !== Salt::box_PUBLICKEY) {
+			throw new SaltException('Invalid public key size');
+		}
+		if ($n->count() !== Salt::box_NONCE) {
+			throw new SaltException('Invalid nonce size');
+		}
+		return Salt::instance()->crypto_box($in, $in->count(), $n, $pk, $sk);
+	}
+
+	/**
+	 * Decrypts a chipertext using the receiver's secret key,
+	 * sender's public key and a nonce.
+	 *
+	 * @param  mixed  chipertext
+	 * @param  mixed  32 byte receiver's secret key
+	 * @param  mixed  32 byte sender's public key
+	 * @param  mixed  24 byte nonce
+	 * @return FieldElement the message
+	 */
+	public static function box_open($chipertext, $secretkey, $publickey, $nonce) {
+		$c = Salt::decodeInput($chipertext);
+		$sk = Salt::decodeInput($secretkey);
+		$pk = Salt::decodeInput($publickey);
+		$n = Salt::decodeInput($nonce);
+		if ($sk->count() !== Salt::box_PRIVATEKEY) {
+			throw new SaltException('Invalid secret key size');
+		}
+		if ($pk->count() !== Salt::box_PUBLICKEY) {
+			throw new SaltException('Invalid public key size');
+		}
+		if ($n->count() !== Salt::box_NONCE) {
+			throw new SaltException('Invalid nonce size');
+		}
+		return Salt::instance()->crypto_box_open($c, $c->count(), $n, $pk, $sk);
+		//($chipertext, $length, $nonce, $publickey, $privatekey) {
+	}
+
+	/**
+	 * Generates a secret key and a corresponding public key.
+	 *
+	 * @return array  secret key, public key
+	 */
+	public static function box_keypair() {
+		return Salt::instance()->crypto_box_keypair();
+	}
+
+	/**
+	 * Signs a message using the signer's private key and returns the signature.
+	 *
+	 * @param  mixed   message to be signed
+	 * @param  mixed   sender's secret key
+	 * @param  string  optional hash algorithm
+	 * @return FieldElement 64 byte signature 
+	 */
+	public static function sign($msg, $secretkey, $algo = 'sha512') {
+		$m = Salt::decodeInput($msg);
+		$sm = Salt::instance()->crypto_sign($m, $m->count(), $secretkey, $algo);
+		return $sm->slice(0, 64);
+	}
+
+	/**
+	 * Verifies the signature of a message using signer's publickey.
+	 *
+	 * @param  mixed  the message
+	 * @param  mixed  signature
+	 * @param  mixed  signer's public key
+	 * @param  string optional hash algorithm
+	 * @return bool
+	 */
+	public static function sign_verify($msg, $signature, $publickey, $algo = 'sha512') {
+		$sm = Salt::decodeInput($signature);
+		$m = Salt::decodeInput($msg);
+		$sm->setSize($sm->count() + $m->count());
+		$sm->copy($m, $m->count, 64);
+		$pk = Salt::decodeInput($publickey);
+		$ret = Salt::instance()->crypto_sign_open($sm, $sm->count(), $pk, $algo);
+		return ($ret !== false);
+	}
+
+	/**
+	 * Generates a secret key and a corresponding public key.
+	 *
+	 * @param  mixed   optional random 32 byte
+	 * @param  string  optional hash algorithm
+	 * @return array   secret key, public key
+	 */
+	public static function sign_keypair($seed = null, $algo = 'sha512') {
+		return Salt::instance()->crypto_sign_keypair($seed, $algo);
+	}
+
 }

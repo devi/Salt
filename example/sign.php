@@ -15,10 +15,10 @@ $sm = $salt->crypto_sign($msg, strlen($msg), $sk);
 
 $plaintext = $salt->crypto_sign_open($sm, count($sm), $pk);
 
-if ($salt->compare($msg, $plaintext) !== 1) {
+if (!$plaintext) {
 	echo "invalid signature";
 } else {
-	echo $plaintext;
+	echo $plaintext->toString();
 }
 
 echo "\nmemory peak: ".memory_get_peak_usage(true)."\n";

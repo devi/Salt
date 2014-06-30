@@ -20,21 +20,19 @@ function printDiff($a, $b) {
 
 $time = -microtime(true);
 
-$salt = new Salt();
-
-$alice = $salt->crypto_box_keypair();
+$alice = Salt::box_keypair();
 $alice_sk = $alice[0];
 $alice_pk = $alice[1];
 
-$bob = $salt->crypto_box_keypair();
+$bob = Salt::box_keypair();
 $bob_sk = $alice[0];
 $bob_pk = $alice[1];
 
-$alice_shared = $salt->crypto_scalarmult($alice_sk, $bob_pk);
+$alice_shared = Salt::scalarmult($alice_sk, $bob_pk);
 
-$bob_shared   = $salt->crypto_scalarmult($bob_sk, $alice_pk);
+$bob_shared   = Salt::scalarmult($bob_sk, $alice_pk);
 
-if ($salt->compare($alice_shared, $bob_shared) !== 1) {
+if (!Salt::equal($alice_shared, $bob_shared)) {
 	printDiff($alice_shared, $bob_shared);
 }
 

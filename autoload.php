@@ -15,6 +15,7 @@ spl_autoload_register(
 				'geprecomp' => '/Ed25519/GePrecomp.php',
 				'geprojective' => '/Ed25519/GeProjective.php',
 				'salt' => '/Salt.php',
+				'saltexception' => '/SaltException.php',
 				'poly1305' => '/Poly1305/Poly1305.php',
 				'salsa20' => '/Salsa20/Salsa20.php',
 			);
