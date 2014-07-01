@@ -395,35 +395,6 @@ class Salt {
 	/* High level API */
 
 	/**
-	 * Generate hash value using Blake2s.
-	 *
-	 * @param  mixed  data to be hashed
-	 * @param  mixed  optional secret key (max 32 bytes)
-	 * @return FieldElement
-	 */
-	public static function hash($str, $key = null) {
-		$b2s = new Blake2s();
-
-		$k = $key;
-		if ($key !== null) {
-			$k = Salt::decodeInput($key);
-			if ($k->count() > $b2s::KEYBYTES) {
-				throw new SaltException('Invalid key size');
-			}
-		}
-
-		$in = Salt::decodeInput($str);
-
-		$ctx = $b2s->init($k);
-		$b2s->update($ctx, $in, $in->count());
-
-		$out = new FieldElement(Blake2s::OUTBYTES);
-		$b2s->finish($ctx, $out);
-
-		return $out;
-	}
-
-	/**
 	 * Authenticates a message using a secret key.
 	 * 
 	 * @param  mixed  message to be authenticated
