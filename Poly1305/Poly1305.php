@@ -2,254 +2,223 @@
 /**
  * Poly1305
  *
- * Assembled from:
- *   https://github.com/floodyberry/poly1305-donna
+ * Implementation derived from poly1305-donna-16.h
+ * See for details: https://github.com/floodyberry/poly1305-donna
  *
- * 
  * @link   https://github.com/devi/Salt
- * 
  */
 class Poly1305 {
 
-	/* Lazy load */
-	private static $instance;
+	const KeySize = 32;
 
-	public static function instance() {
-		if (!isset(static::$instance)) {
-			static::$instance = new Poly1305();
-		}
-		return static::$instance;
+	const TagSize = 16;
+
+	protected function U8TO16($p, $pos) {
+		return (($p[$pos] & 0xff) & 0xffff) | ((($p[$pos+1] & 0xff) & 0xffff) << 8);
 	}
 
-	function context() {
-		$ctx = new SplFixedArray(6);
-		$ctx[0] = new SplFixedArray(5);  // r
-		$ctx[1] = new SplFixedArray(5);  // h
-		$ctx[2] = new SplFixedArray(4);  // pad
-		$ctx[3] = 0;                     // leftover
-		$ctx[4] = new SplFixedArray(16); // buffer
+	protected function U16TO8($p, $pos, $v) {
+		$p[$pos]   = ($v     ) & 0xff;
+		$p[$pos+1] = ($v >> 8) & 0xff;
+	}
+
+	public function init($key) {
+		$ctx    = new SplFixedArray(6);
+		$ctx[0] = new SplFixedArray(16); // buffer
+		$ctx[1] = 0;                     // leftover
+		$ctx[2] = new SplFixedArray(10); // r
+		$ctx[3] = new SplFixedArray(10); // h
+		$ctx[4] = new SplFixedArray(8);  // pad
 		$ctx[5] = 0;                     // final
-		return $ctx;
-	}
 
-	function load($x, $offset = 0) {
-		return
-			$x[$offset] |
-			($x[1+$offset] << 8) |
-			($x[2+$offset] << 16) |
-			($x[3+$offset] << 24);
-	}
+		$t = new SplFixedArray(8);
 
-	function store($x, $offset = 0, $u) {
-		$x[$offset]   = $u & 0xff; $u >>= 8;
-		$x[1+$offset] = $u & 0xff; $u >>= 8;
-		$x[2+$offset] = $u & 0xff; $u >>= 8;
-		$x[3+$offset] = $u & 0xff;
-	}
+		for ($i = 8; $i--;) $t[$i] = $this->U8TO16($key, $i*2);
 
-	function init($key) {
-		$ctx = $this->context();
+		$ctx[2][0] =   $t[0]                         & 0x1fff;
+		$ctx[2][1] = (($t[0] >> 13) | ($t[1] <<  3)) & 0x1fff;
+		$ctx[2][2] = (($t[1] >> 10) | ($t[2] <<  6)) & 0x1f03;
+		$ctx[2][3] = (($t[2] >>  7) | ($t[3] <<  9)) & 0x1fff;
+		$ctx[2][4] = (($t[3] >>  4) | ($t[4] << 12)) & 0x00ff;
+		$ctx[2][5] =  ($t[4] >>  1)                  & 0x1ffe;
+		$ctx[2][6] = (($t[4] >> 14) | ($t[5] <<  2)) & 0x1fff;
+		$ctx[2][7] = (($t[5] >> 11) | ($t[6] <<  5)) & 0x1f81;
+		$ctx[2][8] = (($t[6] >>  8) | ($t[7] <<  8)) & 0x1fff;
+		$ctx[2][9] =  ($t[7] >>  5)                  & 0x007f;
 
-		// r
-		$ctx[0][0] = ($this->load($key, 0)     ) & 0x3ffffff;
-		$ctx[0][1] = ($this->load($key, 3) >> 2) & 0x3ffff03;
-		$ctx[0][2] = ($this->load($key, 6) >> 4) & 0x3ffc0ff;
-		$ctx[0][3] = ($this->load($key, 9) >> 6) & 0x3f03fff;
-		$ctx[0][4] = ($this->load($key,12) >> 8) & 0x00fffff;
+		for ($i = 8; $i--;) {
+			$ctx[3][$i] = 0;
+			$ctx[4][$i] = $this->U8TO16($key, 16+(2*$i));
+		}
 
-		// h
-		$ctx[1][0] = 0;
-		$ctx[1][1] = 0;
-		$ctx[1][2] = 0;
-		$ctx[1][3] = 0;
-		$ctx[1][4] = 0;
-
-		// pad
-		$ctx[2][0] = $this->load($key, 16);
-		$ctx[2][1] = $this->load($key, 20);
-		$ctx[2][2] = $this->load($key, 24);
-		$ctx[2][3] = $this->load($key, 28);
-
-		// leftover
-		$ctx[3] = 0;
-
-		// final
+		$ctx[3][8] = 0;
+		$ctx[3][9] = 0;
+		$ctx[1] = 0;
 		$ctx[5] = 0;
 
+		return $ctx;  
+	}
+ 
+	protected function blocks($ctx, $m, $mpos, $bytes) {
+		$hibit = $ctx[5] ? 0 : (1 << 11);
+		$t = new SplFixedArray(8);
+		$d = new SplFixedArray(10);
+		$c = 0;
 
-		return $ctx;
+		while ($bytes >= 16) {
+			for ($i = 8; $i--;) $t[$i] = $this->U8TO16($m, $i*2+$mpos);
+
+			$ctx[3][0] +=   $t[0]                         & 0x1fff;
+			$ctx[3][1] += (($t[0] >> 13) | ($t[1] <<  3)) & 0x1fff;
+			$ctx[3][2] += (($t[1] >> 10) | ($t[2] <<  6)) & 0x1fff;
+			$ctx[3][3] += (($t[2] >>  7) | ($t[3] <<  9)) & 0x1fff;
+			$ctx[3][4] += (($t[3] >>  4) | ($t[4] << 12)) & 0x1fff;
+			$ctx[3][5] +=  ($t[4] >>  1)                  & 0x1fff;
+			$ctx[3][6] += (($t[4] >> 14) | ($t[5] <<  2)) & 0x1fff;
+			$ctx[3][7] += (($t[5] >> 11) | ($t[6] <<  5)) & 0x1fff;
+			$ctx[3][8] += (($t[6] >>  8) | ($t[7] <<  8)) & 0x1fff;
+			$ctx[3][9] +=  ($t[7] >>  5) | $hibit;
+ 
+			for ($i = 0, $c = 0; $i < 10; $i++) {
+				$d[$i] = $c;
+				for ($j = 0; $j < 10; $j++) {
+					$d[$i] += ($ctx[3][$j] & 0xffffffff) * (($j <= $i) ? $ctx[2][$i-$j] : (5 * $ctx[2][$i+10-$j]));
+					if ($j === 4) {
+						$c = ($d[$i] >> 13);
+						$d[$i] &= 0x1fff;
+					}
+				}
+				$c += ($d[$i] >> 13);
+				$d[$i] &= 0x1fff;
+			}
+			$c = (($c << 2) + $c);
+			$c += $d[0];
+			$d[0] = (($c & 0xffff) & 0x1fff);
+			$c = ($c >> 13);
+			$d[1] += $c;
+
+			for ($i = 10; $i--;) $ctx[3][$i] = $d[$i] & 0xffff;
+
+			$mpos  += 16;
+			$bytes -= 16;
+		}
 	}
 
-	function blocks($ctx, $m, $mOffset = 0, $mlen) {
-		$hibit = $ctx[5] ? 0 : (1 << 24);
+	public function update($ctx, $m, $bytes) {
+		$want = 0; $mpos = 0;
 
-		// r
-		$r0 = $ctx[0][0];
-		$r1 = $ctx[0][1];
-		$r2 = $ctx[0][2];
-		$r3 = $ctx[0][3];
-		$r4 = $ctx[0][4];
-
-		$s1 = $r1 * 5;
-		$s2 = $r2 * 5;
-		$s3 = $r3 * 5;
-		$s4 = $r4 * 5;
-
-		// h
-		$h0 = $ctx[1][0];
-		$h1 = $ctx[1][1];
-		$h2 = $ctx[1][2];
-		$h3 = $ctx[1][3];
-		$h4 = $ctx[1][4];
-
-		while ($mlen >= 16) {
-			$h0 += ($this->load($m,   $mOffset)     ) & 0x3ffffff;
-			$h1 += ($this->load($m, 3+$mOffset) >> 2) & 0x3ffffff;
-			$h2 += ($this->load($m, 6+$mOffset) >> 4) & 0x3ffffff;
-			$h3 += ($this->load($m, 9+$mOffset) >> 6) & 0x3ffffff;
-			$h4 += ($this->load($m,12+$mOffset) >> 8) | $hibit;
-
-			$d0 = ($h0 * $r0) + ($h1 * $s4) + ($h2 * $s3) + ($h3 * $s2) + ($h4 * $s1);
-			$d1 = ($h0 * $r1) + ($h1 * $r0) + ($h2 * $s4) + ($h3 * $s3) + ($h4 * $s2);
-			$d2 = ($h0 * $r2) + ($h1 * $r1) + ($h2 * $r0) + ($h3 * $s4) + ($h4 * $s3);
-			$d3 = ($h0 * $r3) + ($h1 * $r2) + ($h2 * $r1) + ($h3 * $r0) + ($h4 * $s4);
-			$d4 = ($h0 * $r4) + ($h1 * $r3) + ($h2 * $r2) + ($h3 * $r1) + ($h4 * $r0);
-
-			                $c = ($d0 >> 26); $h0 = $d0 & 0x3ffffff;
-			$d1 += $c;      $c = ($d1 >> 26); $h1 = $d1 & 0x3ffffff;
-			$d2 += $c;      $c = ($d2 >> 26); $h2 = $d2 & 0x3ffffff;
-			$d3 += $c;      $c = ($d3 >> 26); $h3 = $d3 & 0x3ffffff;
-			$d4 += $c;      $c = ($d4 >> 26); $h4 = $d4 & 0x3ffffff;
-			$h0 += $c * 5;  $c = ($h0 >> 26); $h0 = $h0 & 0x3ffffff;
-			$h1 += $c;
-
-			$mOffset += 16;
-			$mlen -= 16;
+		if ($ctx[1]) {
+			$want = 16 - $ctx[1];
+			if ($want > $bytes) $want = $bytes;
+			for ($i = $want; $i--;) {
+				$ctx[0][$ctx[1]+$i] = $m[$i+$mpos];
+			}
+			$bytes  -= $want;
+			$mpos   += $want;
+			$ctx[1] += $want;
+			if ($ctx[1] < 16) return;
+			$this->blocks($ctx, $ctx[0], 0, 16);
+			$ctx[1] = 0;
 		}
 
-		// h
-		$ctx[1][0] = $h0;
-		$ctx[1][1] = $h1;
-		$ctx[1][2] = $h2;
-		$ctx[1][3] = $h3;
-		$ctx[1][4] = $h4;
+		if ($bytes >= 16) {
+			$want = ($bytes & ~(16 - 1));
+			$this->blocks($ctx, $m, $mpos, $want);
+			$mpos  += $want;
+			$bytes -= $want;
+		}
 
+		if ($bytes) {
+			for ($i = $bytes; $i--;) {
+				$ctx[0][$ctx[1]+$i] = $m[$i+$mpos];
+			}
+			$ctx[1] += $bytes;
+		}
 	}
 
-	function update($ctx, $m, $mlen) {
-		$mOffset = 0;
-		/* handle leftover */
-		if ($ctx[3]) {
-			
-			$want = (16 - $ctx[3]);
-			if ($want > $mlen) {
-				$want = $mlen;
-			}
-			for ($i = 0; $i < $want;++$i) {
-				// buffer
-				$ctx[4][$ctx[3] + $i] = $m[$i+$mOffset];
-			}
-			$mlen -= $want;
-			$mOffset += $want;
-			
-			$ctx[3] += $want;
-			if ($ctx[3] < 16) {
-				return;
-			}
-			$this->blocks($ctx, $ctx[4], 0, 16);
-			$ctx[3] = 0;
-		}
+	public function finish($ctx, $mac) {
+		$g = new SplFixedArray(10);
 
-		/* process full blocks */
-		if ($mlen >= 16) {
-			$want = ($mlen & ~(16 - 1));
-			$this->blocks($ctx, $m, $mOffset, $want);
-			$mOffset += $want;
-			$mlen -= $want;
-		}
-
-		/* store leftover */
-		if ($mlen) {
-			for ($i = 0; $i < $mlen; ++$i) {
-				$ctx[4][$ctx[3] + $i] = $m[$i+$mOffset];
-			}
-			$ctx[3] += $mlen;
-		}
-
-	}
-
-	function finish($ctx, $out) {
-		if ($ctx[3]) {
-			$i = $ctx[3];
-			$ctx[4][$i++] = 1;
-			for ($j = $i; $j < 16; ++$j) {
-				$ctx[4][$j] = 0;
-			}
+		if ($ctx[1]) {
+			$i = $ctx[1];
+			$ctx[0][$i++] = 1;
+			for (; $i < 16; $i++)
+				$ctx[0][$i] = 0;
 			$ctx[5] = 1;
-			$this->blocks($ctx, $ctx[4], 0, 16);
+			$this->blocks($ctx, $ctx[0], 0, 16);
 		}
 
-		$h0 = $ctx[1][0];
-		$h1 = $ctx[1][1];
-		$h2 = $ctx[1][2];
-		$h3 = $ctx[1][3];
-		$h4 = $ctx[1][4];
+		$c = $ctx[3][1] >> 13;
+		$ctx[3][1] &= 0x1fff;
+		for ($i = 2; $i < 10; $i++) {
+			$ctx[3][$i] += $c;
+			$c = $ctx[3][$i] >> 13;
+			$ctx[3][$i] &= 0x1fff;
+		}
+		$ctx[3][0] += ($c * 5);
+		$c = $ctx[3][0] >> 13;
+		$ctx[3][0] &= 0x1fff;
+		$ctx[3][1] += $c;
+		$c = $ctx[3][1] >> 13;
+		$ctx[3][1] &= 0x1fff;
+		$ctx[3][2] += $c;
+	 
+		$g[0] = $ctx[3][0] + 5;
+		$c = $g[0] >> 13;
+		$g[0] &= 0x1fff;
+		for ($i = 1; $i < 10; $i++) {
+			$g[$i] = $ctx[3][$i] + $c;
+			$c = $g[$i] >> 13;
+			$g[$i] &= 0x1fff;
+		}
+		$g[9] -= (1 << 13);
+		$g[9] &= 0xffff;
 
-		               $c = $h1 >> 26; $h1 = $h1 & 0x3ffffff;
-		$h2 +=     $c; $c = $h2 >> 26; $h2 = $h2 & 0x3ffffff;
-		$h3 +=     $c; $c = $h3 >> 26; $h3 = $h3 & 0x3ffffff;
-		$h4 +=     $c; $c = $h4 >> 26; $h4 = $h4 & 0x3ffffff;
-		$h0 += $c * 5; $c = $h0 >> 26; $h0 = $h0 & 0x3ffffff;
-		$h1 +=     $c;
-
-		$g0 = $h0 + 5;  $c = $g0 >> 26; $g0 &= 0x3ffffff;
-		$g1 = $h1 + $c; $c = $g1 >> 26; $g1 &= 0x3ffffff;
-		$g2 = $h2 + $c; $c = $g2 >> 26; $g2 &= 0x3ffffff;
-		$g3 = $h3 + $c; $c = $g3 >> 26; $g3 &= 0x3ffffff;
-		$g4 = $h4 + $c - (1 << 26);
-
-		$mask = (1 & ($g4 >> 63)) - 1;
-		$g0 &= $mask;
-		$g1 &= $mask;
-		$g2 &= $mask;
-		$g3 &= $mask;
-		$g4 &= $mask;
+		$mask = ($g[9] >> 15) - 1;
+		for ($i = 10; $i--;) $g[$i] &= $mask;
 		$mask = ~$mask;
-		$h0 = ($h0 & $mask) | $g0;
-		$h1 = ($h1 & $mask) | $g1;
-		$h2 = ($h2 & $mask) | $g2;
-		$h3 = ($h3 & $mask) | $g3;
-		$h4 = ($h4 & $mask) | $g4;
+		for ($i = 10; $i--;) $ctx[3][$i] = ($ctx[3][$i] & $mask) | $g[$i];
 
-		$h0 = (($h0      ) | ($h1 << 26)) & 0xffffffff;
-		$h1 = (($h1 >>  6) | ($h2 << 20)) & 0xffffffff;
-		$h2 = (($h2 >> 12) | ($h3 << 14)) & 0xffffffff;
-		$h3 = (($h3 >> 18) | ($h4 <<  8)) & 0xffffffff;
+		$ctx[3][0] = (($ctx[3][0]      ) | ($ctx[3][1] << 13)) & 0xffff;
+		$ctx[3][1] = (($ctx[3][1] >>  3) | ($ctx[3][2] << 10)) & 0xffff;
+		$ctx[3][2] = (($ctx[3][2] >>  6) | ($ctx[3][3] <<  7)) & 0xffff;
+		$ctx[3][3] = (($ctx[3][3] >>  9) | ($ctx[3][4] <<  4)) & 0xffff;
+		$ctx[3][4] = (($ctx[3][4] >> 12) | ($ctx[3][5] <<  1) | ($ctx[3][6] << 14)) & 0xffff;
+		$ctx[3][5] = (($ctx[3][6] >>  2) | ($ctx[3][7] << 11)) & 0xffff;
+		$ctx[3][6] = (($ctx[3][7] >>  5) | ($ctx[3][8] <<  8)) & 0xffff;
+		$ctx[3][7] = (($ctx[3][8] >>  8) | ($ctx[3][9] <<  5)) & 0xffff;
 
-		$f = $h0 + $ctx[2][0]             ; $h0 = $f;
-		$f = $h1 + $ctx[2][1] + ($f >> 32); $h1 = $f;
-		$f = $h2 + $ctx[2][2] + ($f >> 32); $h2 = $f;
-		$f = $h3 + $ctx[2][3] + ($f >> 32); $h3 = $f;
+		$f = ($ctx[3][0] & 0xffffffff) + $ctx[4][0];
+		$ctx[3][0] = $f & 0xffff;
+		for ($i = 1; $i < 8; $i++) {
+			$f = ($ctx[3][$i] & 0xffffffff) + $ctx[4][$i] + ($f >> 16);
+			$ctx[3][$i] = $f & 0xffff;
+		}
 
-		$this->store($out,  0, $h0);
-		$this->store($out,  4, $h1);
-		$this->store($out,  8, $h2);
-		$this->store($out, 12, $h3);
+		for ($i = 8; $i--;) {
+			$this->U16TO8($mac, $i*2, $ctx[3][$i]);
+			$ctx[4][$i] = 0;
+		}
+		for ($i = 10; $i--;) {
+			$ctx[3][$i] = 0;
+			$ctx[2][$i] = 0;
+		}
+	}
 
-		$ctx[0][0] = 0;
-		$ctx[0][1] = 0;
-		$ctx[0][2] = 0;
-		$ctx[0][3] = 0;
-		$ctx[0][4] = 0;
-		$ctx[1][0] = 0;
-		$ctx[1][1] = 0;
-		$ctx[1][2] = 0;
-		$ctx[1][3] = 0;
-		$ctx[1][4] = 0;
-		$ctx[2][0] = 0;
-		$ctx[2][1] = 0;
-		$ctx[2][2] = 0;
-		$ctx[2][3] = 0;
+	protected static $_instance;
+
+	public static function instance() {
+		if (!isset(static::$_instance)) {
+			static::$_instance = new Poly1305();
+		}
+		return static::$_instance;
+	}
+
+	public static function auth($mac, $m, $bytes, $key) {
+		$p = Poly1305::instance();
+		$ctx = $p->init($key);
+		$p->update($ctx, $m, $bytes);
+		$p->finish($ctx, $mac);
 	}
 
 }

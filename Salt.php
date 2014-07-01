@@ -126,11 +126,8 @@ class Salt {
 	}
 
 	public function crypto_onetimeauth($in, $length, $key) {
-		$p = Poly1305::instance();
 		$mac = new FieldElement(16);
-		$ctx = $p->init($key);
-		$p->update($ctx, $in, $length);
-		$p->finish($ctx, $mac);
+		Poly1305::auth($mac, $in, $length, $key);
 		return $mac;
 	}
 
@@ -180,16 +177,16 @@ class Salt {
 		return $out;
 	}
 
-	public function crypto_secretbox_open($chipertext, $length, $nonce, $key) {
+	public function crypto_secretbox_open($ciphertext, $length, $nonce, $key) {
 		if ($length < 32) return false;
 		$subkey = $this->crypto_stream_xsalsa20(32, $nonce, $key);
 		if (!$this->crypto_onetimeauth_verify(
-				$chipertext->slice(16),
-				$chipertext->slice(32),
+				$ciphertext->slice(16),
+				$ciphertext->slice(32),
 				$length - 32,
 				$subkey
 			)) return false;
-		$out = $this->crypto_stream_xsalsa20_xor($chipertext, $length, $nonce, $key);
+		$out = $this->crypto_stream_xsalsa20_xor($ciphertext, $length, $nonce, $key);
 		for ($i = 0;$i < 32;++$i) $out[$i] = 0;
 		return $out;
 	}
@@ -230,13 +227,13 @@ class Salt {
 		return $this->crypto_box_afternm($in, $length+32, $nonce, $subkey);
 	}
 
-	public function crypto_box_open_afternm($chipertext, $length, $nonce, $key) {
-		return $this->crypto_secretbox_open($chipertext, $length, $nonce, $key);
+	public function crypto_box_open_afternm($ciphertext, $length, $nonce, $key) {
+		return $this->crypto_secretbox_open($ciphertext, $length, $nonce, $key);
 	}
 
-	public function crypto_box_open($chipertext, $length, $nonce, $publickey, $privatekey) {
+	public function crypto_box_open($ciphertext, $length, $nonce, $publickey, $privatekey) {
 		$subkey = $this->crypto_box_beforenm($publickey, $privatekey);
-		return $this->crypto_box_open_afternm($chipertext, $length, $nonce, $subkey);
+		return $this->crypto_box_open_afternm($ciphertext, $length, $nonce, $subkey);
 	}
 
 	/**
@@ -499,7 +496,7 @@ class Salt {
 	 * @param  mixed  32 bytes secret key
 	 * @return FieldElement
 	 */
-	public static function secretbox_open($chipertext, $nonce, $key) {
+	public static function secretbox_open($ciphertext, $nonce, $key) {
 		$k = Salt::decodeInput($key);
 		$n = Salt::decodeInput($nonce);
 
@@ -510,7 +507,7 @@ class Salt {
 			throw new SaltException('Invalid nonce size');
 		}
 
-		$in = Salt::decodeInput($chipertext);
+		$in = Salt::decodeInput($ciphertext);
 
 		return Salt::instance()->crypto_secretbox_open($in, $in->count(), $n, $k);
 	}
@@ -585,8 +582,8 @@ class Salt {
 	 * @param  mixed  24 byte nonce
 	 * @return FieldElement the message
 	 */
-	public static function box_open($chipertext, $secretkey, $publickey, $nonce) {
-		$c = Salt::decodeInput($chipertext);
+	public static function box_open($ciphertext, $secretkey, $publickey, $nonce) {
+		$c = Salt::decodeInput($ciphertext);
 		$sk = Salt::decodeInput($secretkey);
 		$pk = Salt::decodeInput($publickey);
 		$n = Salt::decodeInput($nonce);
@@ -600,7 +597,6 @@ class Salt {
 			throw new SaltException('Invalid nonce size');
 		}
 		return Salt::instance()->crypto_box_open($c, $c->count(), $n, $pk, $sk);
-		//($chipertext, $length, $nonce, $publickey, $privatekey) {
 	}
 
 	/**
@@ -654,6 +650,56 @@ class Salt {
 	 */
 	public static function sign_keypair($seed = null, $algo = 'sha512') {
 		return Salt::instance()->crypto_sign_keypair($seed, $algo);
+	}
+
+	/**
+	 * Chacha20Poly1305 AEAD encryption.
+	 *
+	 * @param  mixed  message to be encrypted
+	 * @param  mixed  associated data
+	 * @param  mixed  8 byte nonce
+	 * @param  mixed  32 byte secret key
+	 * @return FieldElement ciphertext
+	 */
+	public static function encrypt($input, $data, $nonce, $secretkey) {
+		$in = Salt::decodeInput($input);
+		$ad = Salt::decodeInput($data);
+		$n = Salt::decodeInput($nonce);
+		$k = Salt::decodeInput($secretkey);
+		if ($k->count() !== Chacha20::KeySize) {
+			throw new SaltException('Invalid key size');
+		}
+		if ($n->count() !== Chacha20::NonceSize) {
+			throw new SaltException('Invalid nonce size');
+		}
+
+		$aead = new Chacha20Poly1305($k);
+		return $aead->encrypt($n, $in, $ad);
+	}
+
+	/**
+	 * Chacha20Poly1305 AEAD decryption.
+	 *
+	 * @param  mixed  ciphertext to be decrypted
+	 * @param  mixed  associated data
+	 * @param  mixed  8 byte nonce
+	 * @param  mixed  32 byte secret key
+	 * @return FieldElement the message
+	 */
+	public static function decrypt($ciphertext, $data, $nonce, $secretkey) {
+		$in = Salt::decodeInput($ciphertext);
+		$ad = Salt::decodeInput($data);
+		$n = Salt::decodeInput($nonce);
+		$k = Salt::decodeInput($secretkey);
+		if ($k->count() !== Chacha20::KeySize) {
+			throw new SaltException('Invalid key size');
+		}
+		if ($n->count() !== Chacha20::NonceSize) {
+			throw new SaltException('Invalid nonce size');
+		}
+
+		$aead = new Chacha20Poly1305($k);
+		return $aead->decrypt($n, $in, $ad);
 	}
 
 }
