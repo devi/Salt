@@ -673,4 +673,34 @@ class Salt {
 		return $aead->decrypt($n, $in, $ad);
 	}
 
+	/**
+	 * Generate hash value using Blake2b.
+	 *
+	 * @param  mixed  data to be hashed
+	 * @param  mixed  optional secret key (64 byte max)
+	 * @return FieldElement 64 byte
+	 */
+	public static function hash($str, $key = null) {
+		$b2b = new Blake2b();
+
+		$k = $key;
+		if ($key !== null) {
+			$k = Salt::decodeInput($key);
+			if ($k->count() > $b2b::KEYBYTES) {
+				throw new SaltException('Invalid key size');
+			}
+		}
+
+		$in = Salt::decodeInput($str);
+
+		$ctx = $b2b->init($k);
+		$b2b->update($ctx, $in, $in->count());
+
+		$out = new FieldElement(Blake2b::OUTBYTES);
+		$b2b->finish($ctx, $out);
+
+		return $out;
+	}
+
+
 }
