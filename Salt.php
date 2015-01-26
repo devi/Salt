@@ -240,20 +240,19 @@ class Salt {
 	 * Generates a secret key and a corresponding public key.
 	 *
 	 * @param  mixed   32 byte random string
-	 * @param  string  hash algorithm
 	 * @return array   private key, public key
 	 */
-	public function crypto_sign_keypair($seed = null, $algo = 'sha512') {
+	public function crypto_sign_keypair($seed = null) {
 		if ($seed === null) {
 			$sk = FieldElement::fromString(Salt::randombytes());
 		} else {
 			$sk = Salt::decodeInput($seed);
-			if ($sk !== Salt::sign_PRIVATEKEY) {
+			if ($sk->count() !== Salt::sign_PUBLICKEY) {
 				throw new SaltException('crypto_sign_keypair: seed must be 32 byte');
 			}
 		}
 
-		$azDigest = hash($algo, $sk->toString(), true);
+		$azDigest = hash('sha512', $sk->toString(), true);
 		$az = FieldElement::fromString($azDigest);
 		$az[0] &= 248;
 		$az[31] &= 63;
@@ -278,10 +277,9 @@ class Salt {
 	 * @param  mixed   message to be signed
 	 * @param  int     message length to be signed
 	 * @param  mixed   private key
-	 * @param  string  hash algorithm
 	 * @return FieldElement  signed message
 	 */
-	public function crypto_sign($msg, $mlen, $secretkey, $algo = 'sha512') {
+	public function crypto_sign($msg, $mlen, $secretkey) {
 		$sk = Salt::decodeInput($secretkey);
 
 		if ($sk->count() !== Salt::sign_PRIVATEKEY) {
@@ -290,7 +288,7 @@ class Salt {
 
 		$pk = $sk->slice(32, 32);
 
-		$azDigest = hash($algo, $sk->slice(0,32)->toString(), true);
+		$azDigest = hash('sha512', $sk->slice(0,32)->toString(), true);
 		$az = FieldElement::fromString($azDigest);
 		$az[0] &= 248;
 		$az[31] &= 63;
@@ -302,7 +300,7 @@ class Salt {
 		$sm->copy($m, $mlen, 64);
 		$sm->copy($az, 32, 32, 32);
 
-		$nonceDigest = hash($algo, $sm->slice(32, $mlen+32)->toString(), true);
+		$nonceDigest = hash('sha512', $sm->slice(32, $mlen+32)->toString(), true);
 		$nonce = FieldElement::fromString($nonceDigest);
 
 		$sm->copy($pk, 32, 32);
@@ -313,7 +311,7 @@ class Salt {
 		$ed->geScalarmultBase($R, $nonce);
 		$ed->GeExtendedtoBytes($sm, $R);
 
-		$hramDigest = hash($algo, $sm->toString(), true);
+		$hramDigest = hash('sha512', $sm->toString(), true);
 		$hram = FieldElement::fromString($hramDigest);
 		$ed->scReduce($hram);
 
@@ -330,10 +328,9 @@ class Salt {
 	 * @param  mixed  signed message
 	 * @param  int    signed message length
 	 * @param  mixed  signer's public key
-	 * @param  string hash algorithm
 	 * @return mixed
 	 */
-	public function crypto_sign_open($signedmsg, $smlen, $publickey, $algo = 'sha512') {
+	public function crypto_sign_open($signedmsg, $smlen, $publickey) {
 		$sm = Salt::decodeInput($signedmsg);
 		$pk = Salt::decodeInput($publickey);
 
@@ -352,7 +349,7 @@ class Salt {
 		for ($i = 0;$i < 32;++$i) $d |= $pk[$i];
 		if ($d === 0) return false;
 
-		$hs = hash_init($algo);
+		$hs = hash_init('sha512');
 		hash_update($hs, $sm->slice(0, 32)->toString());
 		hash_update($hs, $pk->toString());
 		hash_update($hs, $sm->slice(64, $smlen-64)->toString());
@@ -584,12 +581,11 @@ class Salt {
 	 *
 	 * @param  mixed   message to be signed
 	 * @param  mixed   sender's secret key
-	 * @param  string  optional hash algorithm
 	 * @return FieldElement 64 byte signature 
 	 */
-	public static function sign($msg, $secretkey, $algo = 'sha512') {
+	public static function sign($msg, $secretkey) {
 		$m = Salt::decodeInput($msg);
-		$sm = Salt::instance()->crypto_sign($m, $m->count(), $secretkey, $algo);
+		$sm = Salt::instance()->crypto_sign($m, $m->count(), $secretkey);
 		return $sm->slice(0, 64);
 	}
 
@@ -602,13 +598,13 @@ class Salt {
 	 * @param  string optional hash algorithm
 	 * @return bool
 	 */
-	public static function sign_verify($msg, $signature, $publickey, $algo = 'sha512') {
+	public static function sign_verify($msg, $signature, $publickey) {
 		$sm = Salt::decodeInput($signature);
 		$m = Salt::decodeInput($msg);
 		$sm->setSize($sm->count() + $m->count());
 		$sm->copy($m, $m->count, 64);
 		$pk = Salt::decodeInput($publickey);
-		$ret = Salt::instance()->crypto_sign_open($sm, $sm->count(), $pk, $algo);
+		$ret = Salt::instance()->crypto_sign_open($sm, $sm->count(), $pk);
 		return ($ret !== false);
 	}
 
@@ -616,11 +612,10 @@ class Salt {
 	 * Generates a secret key and a corresponding public key.
 	 *
 	 * @param  mixed   optional random 32 byte
-	 * @param  string  optional hash algorithm
 	 * @return array   secret key, public key
 	 */
-	public static function sign_keypair($seed = null, $algo = 'sha512') {
-		return Salt::instance()->crypto_sign_keypair($seed, $algo);
+	public static function sign_keypair($seed = null) {
+		return Salt::instance()->crypto_sign_keypair($seed);
 	}
 
 	/**
