@@ -73,21 +73,19 @@ class Salt {
 	 * @return string
 	 */
 	public static function randombytes($length = 32) {
-		$raw = '';
+		$raw = false;
 		if (is_readable('/dev/urandom')) {
-			$fp = true;
-			if ($fp === true) {
-				$fp = @fopen('/dev/urandom', 'rb');
-			}
-			if ($fp !== true && $fp !== false) {
+			$fp = @fopen('/dev/urandom', 'rb');
+			if ($fp !== false) {
 				$raw = fread($fp, $length);
+				fclose($fp);
 			}
 		} else if (function_exists('mcrypt_create_iv')) {
 			$raw = mcrypt_create_iv($length, MCRYPT_DEV_URANDOM);
 		} else if (function_exists('openssl_random_pseudo_bytes')) {
 			$raw = openssl_random_pseudo_bytes($length);
 		}
-		if (!$raw || strlen($raw) !== $length) {
+		if ($raw === false || strlen($raw) !== $length) {
 			throw new SaltException('Unable to generate randombytes');
 		}
 		return $raw;
