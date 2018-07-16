@@ -73,7 +73,7 @@ class FieldElement extends SplFixedArray {
 	}
 
 	public static function fromHex($hex) {
-		$hex = preg_replace('/[^0-9a-f]/', '', $hex);
+		$hex = preg_replace('/[^0-9a-f]/i', '', $hex);
 		return static::fromString(pack("H*", $hex));
 	}
 
